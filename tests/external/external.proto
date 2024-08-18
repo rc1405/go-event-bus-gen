@@ -1,0 +1,7 @@
+syntax = "proto3";
+import "google/protobuf/empty.proto";
+package external;
+
+service HelloService {
+  rpc HandleEvent (events.CloudWatchEvent) returns (google.protobuf.Empty) {}
+}
