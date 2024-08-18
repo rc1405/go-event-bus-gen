@@ -35,4 +35,5 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           npm i --save-dev conventional-changelog-conventionalcommits
+          npm i --save-dev -g semantic-release
           npx semantic-release
