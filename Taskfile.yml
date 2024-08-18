@@ -1,0 +1,21 @@
+version: '3'
+env:
+  PWD: 
+tasks:
+  
+  build:
+    cmds:
+      - go build 
+  gen:
+    cmds:
+      - PATH=$PATH:{{.PWD}} go generate ./...
+    deps:
+      - build
+    vars:
+      PWD: 
+        sh: pwd
+  test:
+    cmds:
+      - go test ./...
+    deps:
+      - gen

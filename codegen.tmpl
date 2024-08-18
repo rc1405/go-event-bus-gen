@@ -1,0 +1,181 @@
+package {{ .Package }}
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"os"
+	"sync"
+	"time"
+
+	"github.com/rs/zerolog"
+	{{ range $i, $v := .Imports}}"{{ $v }}"{{ end }}
+)
+
+{{ range $i, $s := .Structs }}
+type {{ $s.Name }} struct {
+{{ range $i, $a := $s.Attributes }}
+    {{ $a.Name }} {{ $a.Type }} `json:"{{ $a.RawName }},omitempty"`{{ end }}
+}
+
+{{ end }}
+
+
+type Service interface {
+{{ range $i, $m := .Methods }}
+    {{ $m.Name }}({{ $m.Input }}) {{ if $m.HasOutput }}({{ $m.Output }}, error){{ else }}error{{ end }}{{ end }}
+}
+
+
+type Event struct {
+	Type      string
+	Timestamp time.Time
+	Data      any
+}
+
+type EventBus struct {
+	subscribers map[string][]chan<- Event
+	ready chan struct{}
+}
+
+type Options struct {
+	LogLevel *zerolog.Level
+	Strict   *bool
+	Output   io.Writer
+}
+
+func NewEventBus() *EventBus {
+	return &EventBus{
+		subscribers: make(map[string][]chan<- Event),
+		ready: make(chan struct{}),
+	}
+}
+
+func (e *EventBus) Subscribe(eventType string, subscriber chan<- Event) {
+	e.subscribers[eventType] = append(e.subscribers[eventType], subscriber)
+}
+
+func (e *EventBus) Ready() {
+	<- e.ready
+}
+
+func (e *EventBus) Publish(data any) error {
+	event := Event{
+		Timestamp: time.Now(),
+		Data:      data,
+	}
+
+	switch data.(type) { {{ range $i, $s := .Methods }}
+    case {{ $s.Input }}:
+		event.Type = "{{ $s.Input }}"{{ end }}
+	default:
+		return fmt.Errorf("invalid type provided")
+	}
+
+	subscribers := e.subscribers[event.Type]
+	for _, subscriber := range subscribers {
+		subscriber <- event
+	}
+
+	return nil
+}
+
+func (e *EventBus) Run(ctx context.Context, server Service, opts ...func(*Options)) error {
+	var options Options
+	for _, fn := range opts {
+		fn(&options)
+	}
+
+	var loggerOutput io.Writer
+	switch options.Output {
+	case nil:
+		loggerOutput = os.Stdout
+	default:
+		loggerOutput = options.Output
+	}
+
+	var logLevel zerolog.Level
+	switch options.LogLevel {
+	case nil:
+		logLevel = zerolog.InfoLevel
+	default:
+		logLevel = *options.LogLevel
+	}
+
+	var exitOnError bool
+	switch options.Strict {
+	case nil:
+	default:
+		exitOnError = *options.Strict
+	}
+
+	logger := zerolog.New(loggerOutput).With().Timestamp().Logger()
+	zerolog.SetGlobalLevel(logLevel)
+	
+	var wg sync.WaitGroup
+	ctx2, cancel := context.WithCancel(ctx)
+	defer cancel()
+	errChan := make(chan error)
+
+{{ range $i, $m := .Methods }}
+    c{{ $i }} := make(chan Event)
+    e.Subscribe("{{ $m.Input }}", c{{ $i }})
+
+    wg.Add(1)
+    go func(c chan Event) {
+        defer wg.Done()
+	L:
+		for {
+			select {
+			case <-ctx2.Done():
+				return
+			case event := <-c:
+				msg, ok := event.Data.({{ $m.Input }})
+				if !ok {
+					errChan <- fmt.Errorf("received invalid event type")
+					continue L
+				}
+
+                {{ if $m.HasOutput }}
+                out, err := server.{{ $m.Name }}(msg)
+                if err != nil {
+					errChan <- err
+					continue L
+				}
+
+				if err := e.Publish(out); err != nil {
+					errChan <- err
+					continue L
+				}
+                {{ else }}
+				if err := server.{{ $m.Name }}(msg); err != nil {
+					errChan <- err
+					continue L
+				}
+                {{ end }}
+			}
+		}
+	}(c{{ $i }})
+{{ end }}
+
+	close(e.ready)
+L:
+	for {
+		select {
+		case <-ctx.Done():
+			cancel()
+			break L
+		case err := <-errChan:
+			if err != nil {
+				fmt.Printf("Received error %e", err)
+				logger.Error().Err(err).Msg("received error from handlers")
+				if exitOnError {
+					cancel()
+					return err
+				}
+			}
+		}
+	}
+    wg.Wait()
+    return nil
+}
