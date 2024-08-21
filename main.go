@@ -105,6 +105,7 @@ func parse(cmd *cobra.Command, args []string) error {
 		Imports: config.Imports,
 	}
 
+L:
 	for _, body := range parsedBuf.ProtoBody {
 		switch b := body.(type) {
 		case *parser.Package:
@@ -112,7 +113,12 @@ func parse(cmd *cobra.Command, args []string) error {
 
 		case *parser.Service:
 			for _, visitee := range b.ServiceBody {
-				m := visitee.(*parser.RPC)
+				m, ok := visitee.(*parser.RPC)
+				if !ok {
+					logger.Warn().Msgf("unsupported service type %v", b)
+					continue L
+				}
+
 				method := Method{
 					Name: strcase.ToCamel(m.RPCName),
 				}
@@ -142,6 +148,7 @@ func parse(cmd *cobra.Command, args []string) error {
 						RawName: f.FieldName,
 					})
 				default:
+					logger.Warn().Msgf("unsupported message attribute %v", b)
 				}
 			}
 			tmplData.Structs = append(tmplData.Structs, msg)

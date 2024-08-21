@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"sync"
-	"time"
 
 	"github.com/rs/zerolog"
 	{{ range $i, $v := .Imports}}"{{ $v }}"{{ end }}
@@ -28,14 +27,15 @@ type Service interface {
 
 
 type Event struct {
-	Type      string
-	Timestamp time.Time
-	Data      any
+	Type string
+	Data any
 }
 
 type EventBus struct {
 	subscribers map[string][]chan<- Event
-	ready chan struct{}
+	ready       chan struct{}
+	exitOnError bool
+	logger      zerolog.Logger
 }
 
 type Options struct {
@@ -44,43 +44,16 @@ type Options struct {
 	Output   io.Writer
 }
 
-func NewEventBus() *EventBus {
-	return &EventBus{
-		subscribers: make(map[string][]chan<- Event),
-		ready: make(chan struct{}),
-	}
-}
+/**
+Creates a new EventBus with the provided options.
 
-func (e *EventBus) Subscribe(eventType string, subscriber chan<- Event) {
-	e.subscribers[eventType] = append(e.subscribers[eventType], subscriber)
-}
+Parameters:
+- opts: Variadic functions to set options for the EventBus.
 
-func (e *EventBus) Ready() {
-	<- e.ready
-}
-
-func (e *EventBus) Publish(data any) error {
-	event := Event{
-		Timestamp: time.Now(),
-		Data:      data,
-	}
-
-	switch data.(type) { {{ range $i, $s := .Methods }}
-    case {{ $s.Input }}:
-		event.Type = "{{ $s.Input }}"{{ end }}
-	default:
-		return fmt.Errorf("invalid type provided")
-	}
-
-	subscribers := e.subscribers[event.Type]
-	for _, subscriber := range subscribers {
-		subscriber <- event
-	}
-
-	return nil
-}
-
-func (e *EventBus) Run(ctx context.Context, server Service, opts ...func(*Options)) error {
+Returns:
+- A pointer to the newly created EventBus.
+*/
+func NewEventBus(opts ...func(*Options)) *EventBus {
 	var options Options
 	for _, fn := range opts {
 		fn(&options)
@@ -111,7 +84,68 @@ func (e *EventBus) Run(ctx context.Context, server Service, opts ...func(*Option
 
 	logger := zerolog.New(loggerOutput).With().Timestamp().Logger()
 	zerolog.SetGlobalLevel(logLevel)
-	
+
+	return &EventBus{
+		subscribers: make(map[string][]chan<- Event),
+		ready:       make(chan struct{}),
+		exitOnError: exitOnError,
+		logger:      logger,
+	}
+}
+
+func (e *EventBus) Subscribe(eventType string, subscriber chan<- Event) {
+	e.logger.Trace().Msgf("received subscriber for %s", eventType)
+	e.subscribers[eventType] = append(e.subscribers[eventType], subscriber)
+}
+
+/**
+* Ready waits until the EventBus is ready to process events.
+*/
+func (e *EventBus) Ready() {
+	<- e.ready
+}
+
+/**
+Publish sends the provided data to all subscribers of the EventBus.
+
+Parameters:
+- data: The data to be published.
+
+Returns:
+- An error if the provided data type is not recognized.
+*/
+func (e *EventBus) Publish(data any) error {
+	e.logger.Trace().Interface("event", data).Msg("publishing event")
+	event := Event{
+		Data:      data,
+	}
+
+	switch data.(type) { {{ range $i, $s := .Methods }}
+    case {{ $s.Input }}:
+		event.Type = "{{ $s.Input }}"{{ end }}
+	default:
+		return fmt.Errorf("invalid type provided")
+	}
+
+	subscribers := e.subscribers[event.Type]
+	for _, subscriber := range subscribers {
+		subscriber <- event
+	}
+
+	return nil
+}
+
+/**
+ * Run executes the event bus by subscribing to specific events and handling them accordingly.
+ * It manages the event processing flow, error handling, and cleanup operations.
+ * 
+ * Parameters:
+ * - ctx: the context in which the event bus runs
+ * - server: the service that processes the events
+ * 
+ * Returns an error if any issue occurs during event processing or cleanup.
+ */
+func (e *EventBus) Run(ctx context.Context, server Service) error {
 	var wg sync.WaitGroup
 	ctx2, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -130,6 +164,7 @@ func (e *EventBus) Run(ctx context.Context, server Service, opts ...func(*Option
 			case <-ctx2.Done():
 				return
 			case event := <-c:
+				e.logger.Debug().Interface("event", event.Data).Interface("event_type", event.Type).Msg("event received")
 				msg, ok := event.Data.({{ $m.Input }})
 				if !ok {
 					errChan <- fmt.Errorf("received invalid event type")
@@ -167,9 +202,8 @@ L:
 			break L
 		case err := <-errChan:
 			if err != nil {
-				fmt.Printf("Received error %e", err)
-				logger.Error().Err(err).Msg("received error from handlers")
-				if exitOnError {
+				e.logger.Error().Err(err).Interface("exit_on_error", e.exitOnError).Msg("received error from handlers")
+				if e.exitOnError {
 					cancel()
 					return err
 				}
