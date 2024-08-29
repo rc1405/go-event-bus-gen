@@ -11,18 +11,28 @@ import (
 	{{ range $i, $v := .Imports}}"{{ $v }}"{{ end }}
 )
 
+{{ range $i, $e := .Enums }}
+type {{ $e.Name }}Enum int32
+const (
+	{{ range $x, $m := $e.Members }}
+	{{ $m.Name | ToUpper }} {{ $e.Name }}Enum = {{ $m.Index }}{{ end }}
+)
+
+{{ end }}
+
+
 {{ range $i, $s := .Structs }}
 type {{ $s.Name }} struct {
 {{ range $i, $a := $s.Attributes }}
-    {{ $a.Name }} {{ $a.Type }} `json:"{{ $a.RawName }},omitempty"`{{ end }}
+    {{ $a.Name }} {{ if $a.Repeated }}[]{{ end }}{{ $a.Type }} `json:"{{ $a.RawName }}{{ if $a.Optional }},omitempty{{ end }}"`{{ end }}
 }
 
 {{ end }}
 
 
 type Service interface {
-{{ range $i, $m := .Methods }}
-    {{ $m.Name }}({{ $m.Input }}) {{ if $m.HasOutput }}({{ $m.Output }}, error){{ else }}error{{ end }}{{ end }}
+{{ range $i, $m := .Methods }}{{ if ProcessedMethods $m.Name }}{{ continue }}{{ else }}
+    {{ $m.Name }}({{ $m.Input }}) {{ if $m.HasOutput }}({{ $m.Output }}, error){{ else }}error{{ end }}{{ end }}{{ end }}
 }
 
 
@@ -36,6 +46,7 @@ type EventBus struct {
 	ready       chan struct{}
 	exitOnError bool
 	logger      zerolog.Logger
+	lock        sync.RWMutex
 }
 
 type Options struct {
@@ -95,7 +106,9 @@ func NewEventBus(opts ...func(*Options)) *EventBus {
 
 func (e *EventBus) Subscribe(eventType string, subscriber chan<- Event) {
 	e.logger.Trace().Msgf("received subscriber for %s", eventType)
+	e.lock.Lock()
 	e.subscribers[eventType] = append(e.subscribers[eventType], subscriber)
+	e.lock.Unlock()
 }
 
 /**
@@ -120,14 +133,16 @@ func (e *EventBus) Publish(data any) error {
 		Data:      data,
 	}
 
-	switch data.(type) { {{ range $i, $s := .Methods }}
+	switch data.(type) { {{ range $i, $s := .Methods }}{{ if ProcessedInputs $s.Input }}{{ continue }}{{ else }}
     case {{ $s.Input }}:
-		event.Type = "{{ $s.Input }}"{{ end }}
+		event.Type = "{{ $s.Input }}"{{ end }}{{ end }}
 	default:
 		return fmt.Errorf("invalid type provided")
 	}
 
+	e.lock.RLock()
 	subscribers := e.subscribers[event.Type]
+	e.lock.RUnlock()
 	for _, subscriber := range subscribers {
 		subscriber <- event
 	}
