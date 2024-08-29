@@ -58,7 +58,8 @@ Use inline comments such as `//go:generate go-event-bus-gen --in simple.proto --
 ### Command Line
 `go-event-bus-gen --in simple.proto --out bus.go` which would take in the protobuf from `simple.proto` and generate code to `bus.go`.  Or using a configuration file:  `go-event-bus-gen --in external.proto --out bus.go --config config.yaml`
 
-## Advanced Use: Foreign Inputs
+## Advanced Use
+### Foreign Inputs
 Given the usecase where I would like to use structs not defined in the protobuf file, I would need to specify the needed imports through a config file.
 ```
 imports:
@@ -71,3 +72,61 @@ service HelloService {
   rpc HandleEvent (events.CloudWatchEvent) returns (google.protobuf.Empty) {}
 }
 ```
+
+### Enums
+Generating enums follows the same pattern as rpc code generation. i.e.
+```
+enum Status {
+  SUCCESS = 0;
+  FAILURE = 1;
+}
+
+message HelloReply {
+  Status status  = 1;
+}
+```
+
+Results in code generation such as
+```
+type StatusEnum int32
+
+const (
+	SUCCESS StatusEnum = 0
+	FAILURE StatusEnum = 1
+)
+
+type HelloReply struct {
+	Status    StatusEnum        `json:"status"`
+}
+```
+
+## Limitations
+### Multiple Services
+Services within the same proto file are bundled into the same go interface.  i.e.
+
+```
+service HelloService {
+  rpc SayHello (HelloRequest) returns (HelloReply) {}
+  rpc HelloWorld (HelloReply) returns (google.protobuf.Empty) {}
+}
+
+service ShadowService {
+  rpc AnotherHello(HelloRequest) returns (google.protobuf.Empty) {}
+}
+```
+
+bundles into the following interface
+```
+type Service interface {
+	SayHello(HelloRequest) (HelloReply, error)
+	HelloWorld(HelloReply) error
+	AnotherHello(HelloRequest) error
+}
+```
+
+Note: this also limits multiple services are unable to have a method with the same normalized name
+
+### Imports
+Support for external proto imports is extremely limited.  The ones supported are:
+* `google.protobuf.Timestamp`: which will translate types to `time.Time`
+* `google.protobuf.Empty`: which modifies the return signature for the method from `(Item, error)` to `error`
