@@ -1,0 +1,44 @@
+syntax = "proto3";
+import "google/protobuf/empty.proto";
+package main;
+
+message AccessKeyDetails {
+    string AccessKeyId = 0;
+    string PrincipalId = 1;
+    string UserName    = 2;
+    string UserType    = 3;
+}
+
+message InstanceDetails {
+    string Region     = 0;
+    string InstanceId = 1;
+}
+
+message Resource {
+    AccessKeyDetails AccessKeyDetails = 0;
+    string ResourceType               = 1;
+    InstanceDetails InstanceDetails   = 2;
+}
+
+message Finding {
+    string AccountId    = 0;
+    string Arn           = 1;
+    string CreatedAt     = 2;
+    string Id            = 3;
+    string Region        = 4;
+    Resource Resource    = 5;
+    string SchemaVersion = 6;
+    double Severity      = 7;
+    string Type          = 8;
+    string UpdatedAt     = 9;
+    string Description   = 11;
+    string Partition     = 12;
+    string Title         = 14;
+}
+
+service RemediationService {
+  rpc ParseEvent (events.CloudWatchEvent) returns (Finding) {}
+  rpc Evaluate (Finding) returns (google.protobuf.Empty) {}
+  rpc DisableAccessKey (AccessKeyDetails) returns (google.protobuf.Empty) {}
+  rpc StopInstance (InstanceDetails) returns (google.protobuf.Empty) {}
+}

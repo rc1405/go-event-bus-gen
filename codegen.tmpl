@@ -47,12 +47,14 @@ type EventBus struct {
 	exitOnError bool
 	logger      zerolog.Logger
 	lock        sync.RWMutex
+	Workers     int
 }
 
 type Options struct {
 	LogLevel *zerolog.Level
 	Strict   *bool
 	Output   io.Writer
+	Workers  int
 }
 
 /**
@@ -93,6 +95,13 @@ func NewEventBus(opts ...func(*Options)) *EventBus {
 		exitOnError = *options.Strict
 	}
 
+	var workers = 1
+	switch options.Workers {
+	case 0:
+	default:
+		workers = options.Workers
+	}
+
 	logger := zerolog.New(loggerOutput).With().Timestamp().Logger()
 	zerolog.SetGlobalLevel(logLevel)
 
@@ -101,6 +110,7 @@ func NewEventBus(opts ...func(*Options)) *EventBus {
 		ready:       make(chan struct{}),
 		exitOnError: exitOnError,
 		logger:      logger,
+		Workers:     workers,
 	}
 }
 
@@ -165,48 +175,51 @@ func (e *EventBus) Run(ctx context.Context, server Service) error {
 	ctx2, cancel := context.WithCancel(ctx)
 	defer cancel()
 	errChan := make(chan error)
-
 {{ range $i, $m := .Methods }}
     c{{ $i }} := make(chan Event)
-    e.Subscribe("{{ $m.Input }}", c{{ $i }})
+    e.Subscribe("{{ $m.Input }}", c{{ $i }}){{ end }}
 
-    wg.Add(1)
-    go func(c chan Event) {
-        defer wg.Done()
-	L:
-		for {
-			select {
-			case <-ctx2.Done():
-				return
-			case event := <-c:
-				e.logger.Debug().Interface("event", event.Data).Interface("event_type", event.Type).Msg("event received")
-				msg, ok := event.Data.({{ $m.Input }})
-				if !ok {
-					errChan <- fmt.Errorf("received invalid event type")
-					continue L
-				}
+	for i := 0; i <= e.Workers; i++ { {{ range $i, $m := .Methods }}
+		wg.Add(1)
+		go func(c chan Event) {
+			defer wg.Done()
+		L:
+			for {
+				select {
+				case <-ctx2.Done():
+					return
+				case event, ok := <-c:
+					if !ok {
+						continue L
+					}
+					e.logger.Debug().Interface("event", event.Data).Interface("event_type", event.Type).Msg("event received")
+					msg, ok := event.Data.({{ $m.Input }})
+					if !ok {
+						errChan <- fmt.Errorf("received invalid event type")
+						continue L
+					}
 
-                {{ if $m.HasOutput }}
-                out, err := server.{{ $m.Name }}(msg)
-                if err != nil {
-					errChan <- err
-					continue L
-				}
+					{{ if $m.HasOutput }}
+					out, err := server.{{ $m.Name }}(msg)
+					if err != nil {
+						errChan <- err
+						continue L
+					}
 
-				if err := e.Publish(out); err != nil {
-					errChan <- err
-					continue L
+					if err := e.Publish(out); err != nil {
+						errChan <- err
+						continue L
+					}
+					{{ else }}
+					if err := server.{{ $m.Name }}(msg); err != nil {
+						errChan <- err
+						continue L
+					}
+					{{ end }}
 				}
-                {{ else }}
-				if err := server.{{ $m.Name }}(msg); err != nil {
-					errChan <- err
-					continue L
-				}
-                {{ end }}
 			}
-		}
-	}(c{{ $i }})
-{{ end }}
+		}(c{{ $i }})
+	{{ end }} }	
 
 	close(e.ready)
 L:
