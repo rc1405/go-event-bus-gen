@@ -177,7 +177,7 @@ func (e *EventBus) Run(ctx context.Context, server Service) error {
 	errChan := make(chan error)
 {{ range $i, $m := .Methods }}
     c{{ $i }} := make(chan Event)
-    e.Subscribe("{{ $m.Input }}", c{{ $i }}){{ end }}
+	e.Subscribe("{{ $m.Input }}", c{{ $i }}){{ end }}
 
 	for i := 0; i <= e.Workers; i++ { {{ range $i, $m := .Methods }}
 		wg.Add(1)
