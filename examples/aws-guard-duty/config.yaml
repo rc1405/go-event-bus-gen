@@ -1,0 +1,2 @@
+imports:
+  - github.com/aws/aws-lambda-go/events

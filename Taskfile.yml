@@ -19,3 +19,32 @@ tasks:
       - go test ./...
     deps:
       - gen
+  gen:examples: 
+    cmds:
+      - |
+        export PATH=$PATH:{{.PWD}}
+        for i in `ls -1 examples`
+        do
+          cd {{.PWD}}/examples/$i
+          go generate ./...
+        done
+        cd {{.PWD}}
+    vars:
+      PWD: 
+        sh: pwd
+  
+  test:examples:
+    cmds:
+      - |
+        export PATH=$PATH:{{.PWD}}
+        for i in `ls -1 examples`
+        do
+          cd {{.PWD}}/examples/$i
+          go test ./...
+        done
+        cd {{.PWD}}
+    deps:
+      - gen:examples
+    vars:
+      PWD: 
+        sh: pwd

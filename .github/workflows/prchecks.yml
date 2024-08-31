@@ -11,7 +11,7 @@ name: prchecks
 jobs:
   fmt:
     runs-on: ubuntu-latest
-    name: stable / fmt
+    name: Checks
     steps:
       - uses: actions/checkout@v4
         with:
@@ -22,9 +22,16 @@ jobs:
           version: 3.x
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/setup-go@v5
+        name: Install Go
         with:
           go-version: '>=1.18.0'
       - name: Run Tests
         run: |
           go install go.uber.org/mock/mockgen@latest
           task test
+      - name: Test Examples
+        run: |
+          task test:examples
+      - name: Check fmt
+        run: |
+          files=$(gofmt -l .) && [ -z "$files" ]
