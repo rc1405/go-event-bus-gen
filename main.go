@@ -46,6 +46,21 @@ var protoToGoTypes = map[string]string{
 	"bytes":    "[]byte",
 }
 
+type TypeOverwrite struct {
+	Name   string
+	Import string
+}
+
+var overWriteTypes = map[string]TypeOverwrite{
+	"google.protobuf.Timestamp": {
+		Name:   "time.Time",
+		Import: "time",
+	},
+	"google.protobuf.Any": {
+		Name: "any",
+	},
+}
+
 type Attribute struct {
 	Name     string
 	Type     string
@@ -124,14 +139,29 @@ L:
 
 				if strings.Contains(m.RPCRequest.MessageType, ".") {
 					method.Input = m.RPCRequest.MessageType
+					newType, exists := overWriteTypes[method.Input]
+					if exists {
+						method.Input = newType.Name
+						if newType.Import != "" && !contains(tmplData.Imports, newType.Import) {
+							tmplData.Imports = append(tmplData.Imports, newType.Import)
+						}
+					}
 				} else {
 					method.Input = strcase.ToCamel(m.RPCRequest.MessageType)
 				}
 
-				if m.RPCResponse.MessageType != "google.protobuf.Empty" {
+				newType, exists := overWriteTypes[m.RPCResponse.MessageType]
+				if exists {
+					method.HasOutput = true
+					method.Output = newType.Name
+					if newType.Import != "" && !contains(tmplData.Imports, newType.Import) {
+						tmplData.Imports = append(tmplData.Imports, newType.Import)
+					}
+				} else if m.RPCResponse.MessageType != "google.protobuf.Empty" {
 					method.HasOutput = true
 					method.Output = strcase.ToCamel(m.RPCResponse.MessageType)
 				}
+
 				tmplData.Methods = append(tmplData.Methods, method)
 			}
 
@@ -146,12 +176,12 @@ L:
 						gType = f.Type
 					}
 
-					switch gType {
-					case "google.protobuf.Timestamp":
-						if !contains(tmplData.Imports, "time") {
-							tmplData.Imports = append(tmplData.Imports, "time")
+					newType, exists := overWriteTypes[gType]
+					if exists {
+						gType = newType.Name
+						if newType.Import != "" && !contains(tmplData.Imports, newType.Import) {
+							tmplData.Imports = append(tmplData.Imports, newType.Import)
 						}
-						gType = "time.Time"
 					}
 
 					msg.Attributes = append(msg.Attributes, Attribute{
@@ -172,12 +202,12 @@ L:
 						value = f.Type
 					}
 
-					switch value {
-					case "google.protobuf.Timestamp":
-						if !contains(tmplData.Imports, "time") {
-							tmplData.Imports = append(tmplData.Imports, "time")
+					newType, exists := overWriteTypes[value]
+					if exists {
+						value = newType.Name
+						if newType.Import != "" && !contains(tmplData.Imports, newType.Import) {
+							tmplData.Imports = append(tmplData.Imports, newType.Import)
 						}
-						value = "time.Time"
 					}
 
 					msg.Attributes = append(msg.Attributes, Attribute{

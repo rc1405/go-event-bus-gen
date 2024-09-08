@@ -143,9 +143,11 @@ func (e *EventBus) Publish(data any) error {
 		Data:      data,
 	}
 
-	switch data.(type) { {{ range $i, $s := .Methods }}{{ if ProcessedInputs $s.Input }}{{ continue }}{{ else }}
+	switch data.(type) { {{ range $i, $s := .Methods }}{{ if not (ProcessedInputs $s.Input) }}
     case {{ $s.Input }}:
-		event.Type = "{{ $s.Input }}"{{ end }}{{ end }}
+		event.Type = "{{ $s.Input }}"{{ end }}{{ if $s.HasOutput }}{{ if not (ProcessedInputs $s.Output) }}
+	case {{ $s.Output }}:
+		event.Type = "{{ $s.Output }}"{{ end }}{{ end }}{{ end }}
 	default:
 		return fmt.Errorf("invalid type provided")
 	}
