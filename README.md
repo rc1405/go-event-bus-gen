@@ -129,4 +129,5 @@ Note: this also limits multiple services are unable to have a method with the sa
 ### Imports
 Support for external proto imports is extremely limited.  The ones supported are:
 * `google.protobuf.Timestamp`: which will translate types to `time.Time`
+* `google.protobuf.Any`: which will translate types to `any`
 * `google.protobuf.Empty`: which modifies the return signature for the method from `(Item, error)` to `error`

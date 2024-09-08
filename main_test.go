@@ -23,28 +23,33 @@ func TestEventBusTestSuite(t *testing.T) {
 func (suite *EventBusTestSuite) TestAllTheTypes() {
 	protof := `syntax = "proto3";
 import "google/protobuf/empty.proto";
+import "google/protobuf/any.proto";
+import "google/protobuf/timestamp.proto";
 package types;
 
 message TypeRequest {
-    double   p1 = 0;
-	float    p2 = 1;
-	int32    p3 = 2;
-	int64    p4 = 3;
-	uint32   p5 = 4;
-	uint64   p6 = 5;
-	sint32   p7 = 6;
-	sint64   p8 = 7;
-	fixed32  p9 = 8;
-	fixed64  p10 = 9;
-	sfixed32 p11 = 10;
-	sfixed64 p12 = 11;
-	optional bool     p13 = 12;
-	repeated string   p14 = 13;
-	bytes    p15 = 14;
+    double                    p1 = 0;
+	float                     p2 = 1;
+	int32                     p3 = 2;
+	int64                     p4 = 3;
+	uint32                    p5 = 4;
+	uint64                    p6 = 5;
+	sint32                    p7 = 6;
+	sint64                    p8 = 7;
+	fixed32                   p9 = 8;
+	fixed64                   p10 = 9;
+	sfixed32                  p11 = 10;
+	sfixed64                  p12 = 11;
+	optional bool             p13 = 12;
+	repeated string           p14 = 13;
+	bytes                     p15 = 14;
+	google.protobuf.Any       p16 = 15;
+	google.protobuf.Timestamp p17 = 16;
 }
 
 service TypeService {
   rpc HelloType (typeRequest) returns (google.protobuf.Empty) {}
+  rpc HelloTime (typeRequest) returns (google.protobuf.Timestamp) {}
 }`
 
 	tmpl, err := New([]string{}, bytes.NewReader([]byte(protof)))
@@ -132,6 +137,16 @@ service TypeService {
 						Type:    "[]byte",
 						RawName: "p15",
 					},
+					{
+						Name:    "P16",
+						Type:    "any",
+						RawName: "p16",
+					},
+					{
+						Name:    "P17",
+						Type:    "time.Time",
+						RawName: "p17",
+					},
 				},
 			},
 		},
@@ -141,8 +156,14 @@ service TypeService {
 				Input:     "TypeRequest",
 				HasOutput: false,
 			},
+			{
+				Name:      "HelloTime",
+				Input:     "TypeRequest",
+				HasOutput: true,
+				Output:    "time.Time",
+			},
 		},
-		Imports: []string{},
+		Imports: []string{"time"},
 	})
 }
 
