@@ -343,3 +343,62 @@ service TypeServiceB {
 	_, err := New([]string{}, bytes.NewReader([]byte(protof)))
 	assert.Equal(suite.T(), err, fmt.Errorf("Method HelloType has multiple return signatures"))
 }
+
+func (suite *EventBusTestSuite) TestEmbeddedTypes() {
+	protof := `syntax = "proto3";
+import "google/protobuf/empty.proto";
+package types;
+
+message TypeRequest {
+	Status status = 0;
+	enum Status {
+		SUCCESS = 0;
+		FAILURE = 1;
+	}
+}
+
+service TypeService {
+  rpc HelloType (typeRequest) returns (google.protobuf.Empty) {}
+}`
+
+	tmpl, err := New([]string{}, bytes.NewReader([]byte(protof)))
+	assert.Nil(suite.T(), err)
+	assert.Equal(suite.T(), tmpl, Template{
+		Package: "types",
+		Structs: []Struct{
+			{
+				Name: "TypeRequest",
+				Attributes: []Attribute{
+					{
+						Name:    "Status",
+						Type:    "StatusEnum",
+						RawName: "status",
+					},
+				},
+			},
+		},
+		Methods: []Method{
+			{
+				Name:      "HelloType",
+				Input:     "TypeRequest",
+				HasOutput: false,
+			},
+		},
+		Imports: []string{},
+		Enums: []Enum{
+			{
+				Name: "Status",
+				Members: []EnumMember{
+					{
+						Name:  "SUCCESS",
+						Index: "0",
+					},
+					{
+						Name:  "FAILURE",
+						Index: "1",
+					},
+				},
+			},
+		},
+	})
+}
