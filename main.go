@@ -108,6 +108,105 @@ func contains(data []string, item string) bool {
 	return false
 }
 
+func parseEnum(b *parser.Enum, tmplData *Template) error {
+	enum := Enum{
+		Name: strcase.ToCamel(b.EnumName),
+	}
+
+	for _, e := range b.EnumBody {
+		switch m := e.(type) {
+		case *parser.EnumField:
+			enum.Members = append(enum.Members, EnumMember{
+				Name:  m.Ident,
+				Index: m.Number,
+			})
+		default:
+			logger.Warn().Msgf("unsupported message attribute %s", reflect.TypeOf(m))
+		}
+	}
+
+	tmplData.Enums = append(tmplData.Enums, enum)
+	return nil
+}
+
+func parseMessage(b *parser.Message, tmplData *Template) error {
+	var msg Struct
+	msg.Name = strcase.ToCamel(b.MessageName)
+	for _, attribute := range b.MessageBody {
+		switch f := attribute.(type) {
+		case *parser.Field:
+			gType, ok := protoToGoTypes[f.Type]
+			if !ok {
+				gType = f.Type
+			}
+
+			newType, exists := overWriteTypes[gType]
+			if exists {
+				gType = newType.Name
+				if newType.Import != "" && !contains(tmplData.Imports, newType.Import) {
+					tmplData.Imports = append(tmplData.Imports, newType.Import)
+				}
+			}
+
+			msg.Attributes = append(msg.Attributes, Attribute{
+				Name:     strcase.ToCamel(f.FieldName),
+				Type:     gType,
+				RawName:  f.FieldName,
+				Optional: f.IsOptional,
+				Repeated: f.IsRepeated,
+			})
+		case *parser.MapField:
+			key, ok := protoToGoTypes[f.KeyType]
+			if !ok {
+				key = f.Type
+			}
+
+			value, ok := protoToGoTypes[f.KeyType]
+			if !ok {
+				value = f.Type
+			}
+
+			newType, exists := overWriteTypes[value]
+			if exists {
+				value = newType.Name
+				if newType.Import != "" && !contains(tmplData.Imports, newType.Import) {
+					tmplData.Imports = append(tmplData.Imports, newType.Import)
+				}
+			}
+
+			msg.Attributes = append(msg.Attributes, Attribute{
+				Name:    strcase.ToCamel(f.MapName),
+				Type:    fmt.Sprintf("map[%s]%s", key, value),
+				RawName: f.MapName,
+			})
+
+		case *parser.Message:
+			if err := parseMessage(f, tmplData); err != nil {
+				return err
+			}
+
+			msg.Attributes = append(msg.Attributes, Attribute{
+				Name:    strcase.ToCamel(f.MessageName),
+				Type:    strcase.ToCamel(f.MessageName),
+				RawName: f.MessageName,
+			})
+		case *parser.Enum:
+			if err := parseEnum(f, tmplData); err != nil {
+				return err
+			}
+			msg.Attributes = append(msg.Attributes, Attribute{
+				Name:    strcase.ToCamel(f.EnumName),
+				Type:    fmt.Sprintf("%sEnum", strcase.ToCamel(f.EnumName)),
+				RawName: f.EnumName,
+			})
+		default:
+			logger.Warn().Msgf("unsupported message attribute %s", reflect.TypeOf(f))
+		}
+	}
+	tmplData.Structs = append(tmplData.Structs, msg)
+	return nil
+}
+
 func New(imports []string, proto io.Reader) (Template, error) {
 	tmplData := Template{
 		Imports: imports,
@@ -166,79 +265,14 @@ L:
 			}
 
 		case *parser.Message:
-			var msg Struct
-			msg.Name = strcase.ToCamel(b.MessageName)
-			for _, attribute := range b.MessageBody {
-				switch f := attribute.(type) {
-				case *parser.Field:
-					gType, ok := protoToGoTypes[f.Type]
-					if !ok {
-						gType = f.Type
-					}
-
-					newType, exists := overWriteTypes[gType]
-					if exists {
-						gType = newType.Name
-						if newType.Import != "" && !contains(tmplData.Imports, newType.Import) {
-							tmplData.Imports = append(tmplData.Imports, newType.Import)
-						}
-					}
-
-					msg.Attributes = append(msg.Attributes, Attribute{
-						Name:     strcase.ToCamel(f.FieldName),
-						Type:     gType,
-						RawName:  f.FieldName,
-						Optional: f.IsOptional,
-						Repeated: f.IsRepeated,
-					})
-				case *parser.MapField:
-					key, ok := protoToGoTypes[f.KeyType]
-					if !ok {
-						key = f.Type
-					}
-
-					value, ok := protoToGoTypes[f.KeyType]
-					if !ok {
-						value = f.Type
-					}
-
-					newType, exists := overWriteTypes[value]
-					if exists {
-						value = newType.Name
-						if newType.Import != "" && !contains(tmplData.Imports, newType.Import) {
-							tmplData.Imports = append(tmplData.Imports, newType.Import)
-						}
-					}
-
-					msg.Attributes = append(msg.Attributes, Attribute{
-						Name:    strcase.ToCamel(f.MapName),
-						Type:    fmt.Sprintf("map[%s]%s", key, value),
-						RawName: f.MapName,
-					})
-
-				default:
-					logger.Warn().Msgf("unsupported message attribute %s", reflect.TypeOf(f))
-				}
+			if err := parseMessage(b, &tmplData); err != nil {
+				return tmplData, err
 			}
-			tmplData.Structs = append(tmplData.Structs, msg)
 		case *parser.Enum:
-			enum := Enum{
-				Name: b.EnumName,
+			if err := parseEnum(b, &tmplData); err != nil {
+				return tmplData, err
 			}
 
-			for _, e := range b.EnumBody {
-				switch m := e.(type) {
-				case *parser.EnumField:
-					enum.Members = append(enum.Members, EnumMember{
-						Name:  m.Ident,
-						Index: m.Number,
-					})
-				default:
-					logger.Warn().Msgf("unsupported message attribute %s", reflect.TypeOf(m))
-				}
-			}
-
-			tmplData.Enums = append(tmplData.Enums, enum)
 		default:
 			logger.Debug().Msgf("unsupported type %s", reflect.TypeOf(b))
 		}
