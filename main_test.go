@@ -350,8 +350,7 @@ import "google/protobuf/empty.proto";
 package types;
 
 message TypeRequest {
-	Status status = 0;
-	enum Status {
+	enum status {
 		SUCCESS = 0;
 		FAILURE = 1;
 	}

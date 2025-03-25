@@ -110,7 +110,7 @@ func contains(data []string, item string) bool {
 
 func parseEnum(b *parser.Enum, tmplData *Template) error {
 	enum := Enum{
-		Name: b.EnumName,
+		Name: strcase.ToCamel(b.EnumName),
 	}
 
 	for _, e := range b.EnumBody {
@@ -184,10 +184,21 @@ func parseMessage(b *parser.Message, tmplData *Template) error {
 			if err := parseMessage(f, tmplData); err != nil {
 				return err
 			}
+
+			msg.Attributes = append(msg.Attributes, Attribute{
+				Name:    strcase.ToCamel(f.MessageName),
+				Type:    strcase.ToCamel(f.MessageName),
+				RawName: f.MessageName,
+			})
 		case *parser.Enum:
 			if err := parseEnum(f, tmplData); err != nil {
 				return err
 			}
+			msg.Attributes = append(msg.Attributes, Attribute{
+				Name:    strcase.ToCamel(f.EnumName),
+				Type:    fmt.Sprintf("%sEnum", strcase.ToCamel(f.EnumName)),
+				RawName: f.EnumName,
+			})
 		default:
 			logger.Warn().Msgf("unsupported message attribute %s", reflect.TypeOf(f))
 		}
